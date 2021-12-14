@@ -1,0 +1,470 @@
+<html>
+<head>
+    <title>Title</title>
+    <meta charset="utf-8">
+    <link rel="shortcut icon" href="/favicon.png" />
+    <style>
+body {
+    background-color: #111;
+    color: #EEE;
+    font: 12px monospace;
+    margin: 0px;
+    padding: 0px;
+}
+
+a {
+    color: #999;
+    margin-left: 5px;
+    font: 12px sans-serif;
+}
+
+.input-part {
+    margin: 0px 3px;
+    padding: 0px 3px;
+    background-color: #222;
+    color: inherit;
+    font: inherit;
+    font-weight: bold;
+    border: none;
+}
+
+.result {
+    margin-top: 3px;
+    margin-bottom: 10px;
+    white-space: pre;
+    word-wrap: break-all;
+    line-height: 0.9em;
+    color: #BBB;
+}
+
+.block-number {
+    color: #55F;
+    font: bold 12px sans-serif;
+}
+
+#blocks {
+    display: flex;
+    flex-wrap: wrap;
+}
+
+.block {
+    margin-right: 30px;
+}
+.block:before,
+.block:after {
+  content:"";
+  display:table;
+}
+.block:after {
+  clear:both;
+}
+    </style>
+    <script>
+function setupInlineMedia(media) {
+    media.autoplay = true;
+    media.loop = true;
+    media.controls = false;
+    media.muted = true;
+
+    media.onloadeddata = media.onload = function() {
+        media.width = media.width || media.videoWidth;
+        media.height = media.height || media.videoHeight;
+        var originalWidth = media.width;
+        var originalHeight = media.height;
+        media.width = Math.min(media.width, window.innerWidth);
+        media.height = Math.min(media.height, window.innerHeight);
+        var scale = Math.min(media.width / originalWidth, media.height / originalHeight);
+        media.width = originalWidth * scale;
+        media.height = originalHeight * scale;
+    };
+
+    media.draggable = false;
+    media.style.cursor = 'hand';
+    media.onmousedown = function(e) {
+        media.initialWidth = media.width;
+        media.initialHeight = media.height;
+        var initialDistance = Math.sqrt(e.clientX * e.clientX + e.clientY * e.clientY);
+        function onmove(e2) {
+            var distance = Math.sqrt(e2.clientX * e2.clientX + e2.clientY * e2.clientY);
+            var scale = Math.max(0.01, distance / initialDistance);
+
+            media.width = scale * media.initialWidth;
+            media.height = scale * media.initialHeight;
+        }
+        function onup(e2) {
+            window.removeEventListener('mousemove', onmove);
+            window.removeEventListener('mouseup', onup);
+            e2.preventDefault();
+            e2.stopPropagation();
+            e2.stopImmediatePropagation();
+        }
+        window.addEventListener('mousemove', onmove);
+        window.addEventListener('mouseup', onup);
+    };
+    media.ondblclick = function(e) {
+        var ratio = media.height / media.width;
+        media.width = window.innerWidth;
+        media.height = media.width * ratio;
+    }
+}
+
+function POST(path, formData, onFinished) {
+    var request = new XMLHttpRequest();
+    request.open('POST', path, true);
+    request.onreadystatechange = function(e) {
+        if (request.readyState >= 4) {
+            onFinished(request.responseText);
+        }
+    };
+    request.onerror = function(e) {
+        alert('Error requesting URL ' + path);
+    }
+    request.send(formData);
+}
+
+function showRequest(request, altPath, div, onFinished) {
+    request.onreadystatechange = function(e) {
+        var header = request.getResponseHeader('Content-Type');
+        if (header === null) return;
+
+        var type = header.split('/')[0];
+
+        if (type === 'text' && request.readyState < 4) {
+            if (request.responseText === '') {
+                div.style.display == 'none';
+            } else {
+                div.style.display == 'block';
+            }
+            div.textContent = request.responseText;
+            onFinished && onFinished();
+        } else if (request.readyState === 2) {
+            request.abort();
+            var media;
+            if (type === 'image') {
+                media = document.createElement('img');
+                setupInlineMedia(media);
+            } else if (type === 'video' || altPath.endsWith('.webm')) {
+                media = document.createElement('video');
+                setupInlineMedia(media);
+            } else if (type === 'audio') {
+                media = document.createElement('audio');
+                media.controls = true;
+            } else {
+                alert('Unknown media type ' + header);
+            }
+            media.src = altPath;
+            div.appendChild(media);
+            onFinished && onFinished();
+        }
+    };
+}
+
+function showContents(path, div, onFinished) {
+    var request = new XMLHttpRequest();
+    request.open('GET', path, true);
+    showRequest(request, path, div, onFinished);
+    request.send();
+}
+
+function showGallery(path, finalResult) {
+    POST(path, undefined, function(text) {
+        var lines = text.split('\n');
+        for (var i = 0; i < lines.length; i++) {
+            var subResult = document.createElement('div');
+            finalResult.appendChild(subResult);
+            showContents('/file?path=' + lines[i], subResult);
+        }
+    });
+}
+
+function selectNewBlock() {
+    var lastBlock = document.getElementById('blocks').lastChild;
+    if (!lastBlock) {
+        return newBlock();
+    }
+
+    var lastFirstPart = lastBlock.inSpan.firstChild;
+    if (lastFirstPart.value === '') {
+        lastFirstPart.focus();
+        lastFirstPart.scrollIntoView();
+        return lastFirstPart;
+    } else {
+        return newBlock().inSpan.firstChild;
+    }
+}
+
+function newInputPart(block, text) {
+    var part = document.createElement('input');
+    part.type = 'text';
+    part.classList.add('input-part');
+    part.value = text || '';
+    var oldFocus = part.focus.bind(part);
+    part.focus = function() {
+        oldFocus();
+        part.select();
+    };
+    part.oninput = function() {
+        hiddenInput.textContent = part.value;
+        part.style.width = Math.max(10, hiddenInput.getBoundingClientRect().width) + 'px';
+    }
+    part.oninput();
+    part.onkeydown = function(e) {
+        if (e.ctrlKey && !(e.which === 13 || e.which == 32)) {
+            return;
+        }
+
+        // Ctrl+space
+        if (e.which == 32 && e.ctrlKey) {
+            var formData = new FormData();
+            formData.append('path', part.value);
+            POST('/glob', formData, function(text) {
+                if (text.length === 0) {
+                    return;
+                }
+                var lines = text.split('\n');
+                part.value = lines[0];
+                part.oninput()
+                for (var i = 1; i < lines.length; i++) {
+                    var nextPart = newInputPart(block);
+                    nextPart.value = lines[i];
+                    nextPart.oninput()
+                    part.parentNode.appendChild(nextPart);
+                }
+                
+                var nextPart = newInputPart(block);
+                part.parentNode.appendChild(nextPart);
+                nextPart.focus()
+            });
+        }
+        // Tab
+        if (e.which === 9) {
+            if (!e.shiftKey && !part.nextSibling) {
+                var nextPart = newInputPart(block);
+                part.parentNode.appendChild(nextPart);
+                nextPart.focus();
+                e.preventDefault();
+            }
+            if (e.shiftKey) {
+                if (!part.previousSibling) {
+                    e.preventDefault();
+                } else if (part.value === '') {
+                    part.previousSibling.focus();
+                    part.parentNode.removeChild(part);
+                    e.preventDefault();
+                }
+            }
+        }
+        // Enter
+        if (e.which === 13) {
+            if (e.ctrlKey) {
+                var firstPart = block.inSpan.firstChild;
+                if (firstPart.value[0] !== '@') {
+                    firstPart.value = '@' + firstPart.value;
+                    firstPart.oninput();
+                }
+            }
+            e.preventDefault();
+            block.run(selectNewBlock());
+        }
+        // Esc
+        if (e.which === 27) {
+            var prev = block.previousSibling;
+            var next = block.nextSibling;
+            block.remove();
+            if (prev) {
+                prev.inSpan.firstChild.focus();
+            } else if (next) {
+                next.inSpan.firstChild.focus();
+            } else {
+                selectNewBlock();
+            }
+        }
+        // Up/Down
+        if (e.which === 38) {
+            block.previousSibling && block.previousSibling.inSpan.firstChild.focus();
+        } else if (e.which === 40) {
+            if (block.nextSibling) {
+                block.nextSibling.inSpan.firstChild.focus();
+            } else {
+                selectNewBlock();
+            }
+        }
+    };
+    return part;
+}
+
+function newBlock(number, inputParts, submitted) {
+    var block = document.createElement('div');
+    block.classList.add('block');
+    var lastBlock = document.getElementById('blocks').lastChild;
+    block.number = number || (lastBlock && lastBlock.number + 1) || 1;
+    block.submitted = submitted;
+
+    var number = document.createElement('span');
+    number.textContent = '#' + block.number;
+    number.classList.add('block-number');
+    block.appendChild(number);
+
+    block.remove = function() {
+        if (block.submitted) {
+            var client = new XMLHttpRequest();
+            client.open('GET', '/remove/' + block.number);
+            client.send();
+        }
+        block.parentNode.removeChild(block);
+    };
+
+    var inSpan = document.createElement('span');
+    block.inSpan = inSpan;
+    if (inputParts === undefined) {
+        inputParts = [''];
+    }
+    for (var i = 0; i < inputParts.length; i++) {
+        inSpan.appendChild(newInputPart(block, inputParts[i]));
+    }
+    block.appendChild(inSpan);
+
+    var remove = document.createElement('a');
+    remove.href = 'javascript:';
+    remove.textContent = 'remove';
+    remove.tabIndex = -1;
+    block.appendChild(remove);
+    remove.onclick = function(e) {
+        block.remove();
+    }
+
+    var rerun = document.createElement('a');
+    rerun.href = 'javascript:';
+    rerun.textContent = 'run';
+    rerun.tabIndex = -1;
+    block.appendChild(rerun);
+    rerun.onclick = function(e) {
+        block.run();
+    }
+
+    var download = document.createElement('a');
+    download.href = '/outputs/' + block.number;
+    download.download = block.number;
+    download.textContent = 'download';
+    download.style.display = 'none';
+    download.tabIndex = -1;
+    block.appendChild(download);
+
+    var result = document.createElement('div');
+    result.classList.add('result');
+    result.id = 'result' + block.number;
+    block.appendChild(result);
+    result.clear = function() {
+        while (result.firstChild) {
+           result.removeChild(result.firstChild);
+        }
+    }
+
+    block.onSubmitted = function() {
+        download.style.display = 'inline';
+        number.style.color = '#5F5';
+
+        var width = window.getComputedStyle(block).width.slice(0, -2) - 0;
+        var minWidth = 400;
+        var columns = Math.ceil(width / minWidth);
+        var margin = 30;
+        block.style.minWidth = (columns * minWidth + (columns - 1) * margin) +  'px';
+    }
+
+    block.run = function(scrollTo) {
+        result.clear();
+
+        var parts = [];
+        for (var i = 0; i < inSpan.children.length; i++) {
+            parts.push(inSpan.children[i].value);
+        }
+        if (parts.length === 1 && parts[0] === '') {
+            return;
+        }
+        document.title = parts.join(' ');
+
+        number.style.color = '#F55';
+
+        if (parts.length === 1 && parts[0][0] == '!') {
+            var path = parts[0].slice(1);
+            if (parts[0].indexOf('*') === -1) {
+                showContents('/file?path=' + path, result);
+            } else {
+                showGallery('/glob?path=' + path, result);
+            }
+            return;
+        }
+
+        var formData = new FormData();
+        formData.append('data', JSON.stringify({
+            id: block.number,
+            parts: parts,
+        }));
+        var request = new XMLHttpRequest();
+        request.open('POST', '/run', true);
+        showRequest(request, 'outputs/' + block.number, result, function() {
+            block.onSubmitted();
+            if (scrollTo) {
+              scrollTo.scrollIntoView();
+            }
+        })
+        request.onerror = function(e) {
+            alert('Error requesting URL ' + path);
+        }
+        request.send(formData);
+
+        block.submitted = true;
+    }
+    number.onclick = function() {
+        result.style.display = result.style.display == 'none' ? 'block'  : 'none';
+    }
+
+    if (block.submitted) {
+        showContents('outputs/' + block.number, result, block.onSubmitted);
+    }
+
+    document.getElementById('blocks').appendChild(block);
+    inSpan.firstChild.focus();
+
+    return block;
+}
+function loadSession() {
+    var client = new XMLHttpRequest();
+    client.open('GET', '/session');
+    client.onreadystatechange = function() {
+        if (client.readyState < 4) {
+            return;
+        }
+
+        var session = JSON.parse(client.responseText);
+        for (var id in session) {
+            newBlock(id|0, session[id], true);
+        }
+
+        newBlock(0, [''], false);
+    }
+    client.send();
+}
+var hiddenInput = document.createElement('span');
+window.onload = function() {
+    loadSession();
+    hiddenInput.classList.add('input-part');
+    hiddenInput.style.whiteSpace = 'pre';
+    hiddenInput.style.visibility = 'hidden';
+    hiddenInput.style.position = 'absolute';
+    hiddenInput.style.top = '0px';
+    document.body.appendChild(hiddenInput);
+    window.onkeydown = function(e) {
+        if (e.which === 32 && !e.target.classList.contains('input-part')) {
+            e.preventDefault();
+            selectNewBlock();
+        }
+    };
+};
+    </script>
+</head>
+<body>
+<div id="blocks"></div>
+<div id="controls"></div>
+</body>
+</html>
